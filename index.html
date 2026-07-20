@@ -342,21 +342,33 @@ function translateFree(ja){
       return [{label:"無料翻訳", en:t}];
     });
 }
+var GEMINI_MODELS=["gemini-flash-latest","gemini-2.5-flash","gemini-3-flash","gemini-2.0-flash","gemini-2.5-flash-lite"];
 function translateGemini(ja){
-  var url="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+encodeURIComponent(settings.geminiKey);
-  return fetch(url,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:LLM_PROMPT+ja}]}]})
-  }).then(function(r){
-    if(r.status===400||r.status===403) throw new Error("key");
-    if(!r.ok) throw new Error("net");
-    return r.json();
-  }).then(function(d){
-    var t="";
-    try{ t=d.candidates[0].content.parts.map(function(p){return p.text||"";}).join(""); }catch(e){}
-    return parseVariants(t);
-  });
+  var lastErr="";
+  function tryModel(i){
+    if(i>=GEMINI_MODELS.length){ var e=new Error("gemini"); e.detail=lastErr; throw e; }
+    var url="https://generativelanguage.googleapis.com/v1beta/models/"+GEMINI_MODELS[i]+":generateContent?key="+encodeURIComponent(settings.geminiKey);
+    return fetch(url,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({contents:[{parts:[{text:LLM_PROMPT+ja}]}]})
+    }).then(function(r){
+      return r.json().catch(function(){return {};}).then(function(d){
+        if(!r.ok){
+          var msg=(d&&d.error&&d.error.message)?d.error.message:("HTTP "+r.status);
+          lastErr=GEMINI_MODELS[i]+": "+msg;
+          if(r.status===400&&/API key/i.test(msg)){ var e=new Error("key"); throw e; }
+          if(r.status===403){ var e2=new Error("key"); e2.detail=msg; throw e2; }
+          return tryModel(i+1);
+        }
+        var t="";
+        try{ t=d.candidates[0].content.parts.map(function(p){return p.text||"";}).join(""); }catch(e){}
+        try{ return parseVariants(t); }
+        catch(pe){ lastErr=GEMINI_MODELS[i]+": 応答の形式エラー"; return tryModel(i+1); }
+      });
+    },function(){ lastErr=GEMINI_MODELS[i]+": 通信エラー"; return tryModel(i+1); });
+  }
+  return Promise.resolve().then(function(){ return tryModel(0); });
 }
 function translateClaude(ja){
   return fetch("https://api.anthropic.com/v1/messages",{
@@ -553,7 +565,9 @@ function handleJa(text){
     todayCount++; $("todayCount").textContent=todayCount;
   }).catch(function(err){
     if(err && err.message==="key"){
-      showErr("APIキーが正しくないようです。設定画面でキーを確認してください。");
+      showErr("APIキーが正しくないようです。設定画面でキーを確認してください。"+(err.detail?("【詳細】"+err.detail):""));
+    }else if(err && err.detail){
+      showErr("変換に失敗しました。【詳細】"+err.detail);
     }else{
       showErr("変換に失敗しました。電波状況とエンジン設定を確認してください。");
     }
