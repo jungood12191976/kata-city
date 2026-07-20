@@ -344,14 +344,11 @@ function translateFree(ja){
     });
 }
 var geminiWorking=null;
-var GEMINI_MODELS=[
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-preview-05-20"
-];
+var GEMINI_MODELS=["gemini-3.5-flash","gemini-2.5-flash"];
 function translateGemini(ja){
   var lastErr="";
   function tryModel(i){
-    if(i>=GEMINI_MODELS.length){ var e=new Error("gemini"); e.detail="利用可能なGeminiモデルで接続できませんでした。 "+lastErr; throw e; }
+    if(i>=GEMINI_MODELS.length){ var e=new Error("gemini"); e.detail=lastErr; throw e; }
     var url="https://generativelanguage.googleapis.com/v1beta/models/"+GEMINI_MODELS[i]+":generateContent?key="+encodeURIComponent(settings.geminiKey);
     return fetch(url,{
       method:"POST",
@@ -620,7 +617,7 @@ function handleJa(text){
     if(err && err.message==="key"){
       showErr("APIキーが正しくないようです。設定画面でキーを確認してください。"+(err.detail?("【詳細】"+err.detail):""));
     }else if(err && err.detail){
-      showErr("変換に失敗しました。【詳細】"+err.detail);
+      showErr("GeminiモデルまたはAPIの設定でエラーが発生しました。利用可能モデルへ自動切替を試しました。\n【詳細】"+err.detail);
     }else{
       showErr("変換に失敗しました。電波状況とエンジン設定を確認してください。");
     }
@@ -733,7 +730,7 @@ function setGloss(n, ja){
   if(s) s.textContent=ja;
 }
 function llmRawGemini(prompt){
-  var gm = geminiWorking || GEMINI_MODELS[0];
+  var gm = (geminiWorking && GEMINI_MODELS.indexOf(geminiWorking)>=0) ? geminiWorking : GEMINI_MODELS[0];
   var url="https://generativelanguage.googleapis.com/v1beta/models/"+gm+":generateContent?key="+encodeURIComponent(settings.geminiKey);
   return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
