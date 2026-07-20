@@ -244,7 +244,7 @@
       <input type="radio" name="engine" value="gemini">
       <div style="flex:1">
         <div class="t">Gemini(無料枠あり・おすすめ)</div>
-        <div class="d">ネイティブ表現2パターン。Googleの無料APIキーで使えます。aistudio.google.com で「Get API key」→作成したキーを貼り付け。</div>
+        <div class="d">ネイティブ表現2パターン。Googleの無料APIキーで使えます。利用可能な新しいモデルをAPIから自動取得して選びます。aistudio.google.com で「Get API key」→作成したキーを貼り付け。</div>
         <input type="password" id="geminiKey" placeholder="AIza... を貼り付け" autocomplete="off">
       </div>
     </label>
@@ -265,6 +265,7 @@
 
 <script>
 "use strict";
+// KATA CITY API compatibility update: 2026-07-20 v3
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 var rec=null, enTarget="", jaCurrent="", todayCount=0, micMode="", curVariants=[];
 
@@ -312,6 +313,7 @@ function saveSettings(){
   if(engine==="gemini" && !gk){ msg.style.color="var(--red)"; msg.textContent="Geminiを使うにはAPIキーを貼り付けてください。"; return; }
   if(engine==="claude" && !ck){ msg.style.color="var(--red)"; msg.textContent="Claudeを使うにはAPIキーを貼り付けてください。"; return; }
   settings={engine:engine, geminiKey:gk, claudeKey:ck};
+  geminiCandidates=null; geminiWorking=null; geminiKeyUsed="";
   store.set("kata:settings",settings);
   msg.style.color="var(--blue)"; msg.textContent="保存しました。エンジン: "+ENGINE_NAMES[engine];
   renderHome();
@@ -344,34 +346,220 @@ function translateFree(ja){
     });
 }
 var geminiWorking=null;
-var GEMINI_MODELS=["gemini-3.5-flash","gemini-2.5-flash"];
-function translateGemini(ja){
-  var lastErr="";
-  function tryModel(i){
-    if(i>=GEMINI_MODELS.length){ var e=new Error("gemini"); e.detail=lastErr; throw e; }
-    var url="https://generativelanguage.googleapis.com/v1beta/models/"+GEMINI_MODELS[i]+":generateContent?key="+encodeURIComponent(settings.geminiKey);
-    return fetch(url,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:LLM_PROMPT+ja}]}]})
-    }).then(function(r){
-      return r.json().catch(function(){return {};}).then(function(d){
-        if(!r.ok){
-          var msg=(d&&d.error&&d.error.message)?d.error.message:("HTTP "+r.status);
-          lastErr=GEMINI_MODELS[i]+": "+msg;
-          if(r.status===400&&/API key/i.test(msg)){ var e=new Error("key"); throw e; }
-          if(r.status===403){ var e2=new Error("key"); e2.detail=msg; throw e2; }
+var geminiCandidates=null;
+var geminiKeyUsed="";
+var GEMINI_PREFERRED=[
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-3-flash-preview"
+];
+
+function normalizeGeminiName(name){
+  return String(name||"").replace(/^models\//,"").trim();
+}
+
+function geminiModelRank(name){
+  var n=normalizeGeminiName(name).toLowerCase();
+  var p=GEMINI_PREFERRED.indexOf(n);
+  if(p>=0) return p;
+
+  // 翻訳用のテキストモデルだけを候補にする
+  if(n.indexOf("gemini-")!==0) return 9999;
+  if(/image|imagen|tts|audio|live|embedding|aqa|robotics|computer-use/.test(n)) return 9999;
+
+  // 新規ユーザーで利用できない旧2.x系は候補から除外
+  if(/^gemini-2\./.test(n)) return 9999;
+
+  if(/^gemini-3(\.|-).*flash/.test(n)) return 20;
+  return 9999;
+}
+
+function geminiErrorMessage(d,status){
+  if(d&&d.error&&d.error.message) return d.error.message;
+  return "HTTP "+status;
+}
+
+function listGeminiModels(force){
+  if(!force && geminiCandidates && geminiKeyUsed===settings.geminiKey){
+    return Promise.resolve(geminiCandidates.slice());
+  }
+
+  var url="https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key="+encodeURIComponent(settings.geminiKey);
+  return fetch(url).then(function(r){
+    return r.json().catch(function(){return {};}).then(function(d){
+      if(!r.ok){
+        var msg=geminiErrorMessage(d,r.status);
+        if(r.status===400 && /api.?key|API_KEY_INVALID/i.test(msg)){
+          var ke=new Error("key"); ke.detail=msg; throw ke;
+        }
+        if(r.status===403 && /api.?key|API_KEY_INVALID|permission denied|referrer/i.test(msg)){
+          var ke2=new Error("key"); ke2.detail=msg; throw ke2;
+        }
+        var le=new Error("gemini"); le.detail="モデル一覧の取得に失敗: "+msg; throw le;
+      }
+
+      var models=(d.models||[]).filter(function(m){
+        var methods=m.supportedGenerationMethods||[];
+        return methods.indexOf("generateContent")>=0 && geminiModelRank(m.name)<9999;
+      }).map(function(m){
+        return normalizeGeminiName(m.name);
+      });
+
+      // 重複を除去し、安定版・低コストのFlash系を優先
+      var seen={};
+      models=models.filter(function(n){
+        if(!n||seen[n]) return false;
+        seen[n]=true;
+        return true;
+      }).sort(function(a,b){
+        var ra=geminiModelRank(a), rb=geminiModelRank(b);
+        if(ra!==rb) return ra-rb;
+        return a<b?-1:(a>b?1:0);
+      });
+
+      if(!models.length){
+        var ne=new Error("gemini");
+        ne.detail="このAPIキーでgenerateContentを利用できる新しいGeminiテキストモデルが見つかりませんでした。";
+        throw ne;
+      }
+
+      geminiCandidates=models;
+      geminiKeyUsed=settings.geminiKey;
+      return models.slice();
+    });
+  },function(){
+    // モデル一覧APIが一時的に通信失敗した場合だけ、公式の現行候補で試す
+    return GEMINI_PREFERRED.slice();
+  });
+}
+
+function extractGeminiText(d){
+  var parts=[];
+  try{
+    var cs=d.candidates||[];
+    for(var i=0;i<cs.length;i++){
+      var ps=(cs[i].content&&cs[i].content.parts)||[];
+      for(var j=0;j<ps.length;j++){
+        if(typeof ps[j].text==="string") parts.push(ps[j].text);
+      }
+    }
+  }catch(e){}
+  var t=parts.join("").trim();
+  if(!t){
+    var reason="";
+    try{ reason=(d.promptFeedback&&d.promptFeedback.blockReason)||""; }catch(e2){}
+    var er=new Error("empty");
+    er.detail=reason ? ("応答がブロックされました: "+reason) : "Geminiから本文が返りませんでした。";
+    throw er;
+  }
+  return t;
+}
+
+function callGeminiModel(model,prompt,maxTokens,responseSchema){
+  var gm=normalizeGeminiName(model);
+  var url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(gm)+":generateContent?key="+encodeURIComponent(settings.geminiKey);
+
+  var generationConfig={
+    temperature:0.2,
+    maxOutputTokens:maxTokens||1024,
+    responseMimeType:"application/json"
+  };
+  if(responseSchema) generationConfig.responseSchema=responseSchema;
+
+  return fetch(url,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      contents:[{role:"user",parts:[{text:prompt}]}],
+      generationConfig:generationConfig
+    })
+  }).then(function(r){
+    return r.json().catch(function(){return {};}).then(function(d){
+      if(!r.ok){
+        var msg=geminiErrorMessage(d,r.status);
+        var e;
+        if((r.status===400||r.status===403) && /api.?key|API_KEY_INVALID|referrer/i.test(msg)){
+          e=new Error("key");
+        }else{
+          e=new Error("model");
+        }
+        e.status=r.status;
+        e.detail=gm+": "+msg;
+        throw e;
+      }
+      return extractGeminiText(d);
+    });
+  },function(){
+    var e=new Error("model");
+    e.detail=gm+": 通信エラー";
+    throw e;
+  });
+}
+
+function runGemini(prompt,validator,maxTokens,responseSchema){
+  return listGeminiModels(false).then(function(models){
+    var ordered=models.slice();
+
+    // 同じセッションで成功済みのモデルを最優先
+    if(geminiWorking){
+      var wi=ordered.indexOf(geminiWorking);
+      if(wi>0){
+        ordered.splice(wi,1);
+        ordered.unshift(geminiWorking);
+      }
+    }
+
+    var errors=[];
+    function tryModel(i){
+      if(i>=ordered.length){
+        var e=new Error("gemini");
+        e.detail=errors.slice(-6).join("\n");
+        throw e;
+      }
+
+      var model=ordered[i];
+      return callGeminiModel(model,prompt,maxTokens,responseSchema).then(
+        function(t){
+          try{
+            var result=validator ? validator(t) : t;
+            geminiWorking=model;
+            return result;
+          }catch(pe){
+            errors.push(model+": 応答形式エラー");
+            return tryModel(i+1);
+          }
+        },
+        function(err){
+          if(err&&err.message==="key") throw err;
+          errors.push((err&&err.detail)?err.detail:(model+": 不明なエラー"));
           return tryModel(i+1);
         }
-        var t="";
-        try{ t=d.candidates[0].content.parts.map(function(p){return p.text||"";}).join(""); }catch(e){}
-        try{ var pv=parseVariants(t); geminiWorking=GEMINI_MODELS[i]; return pv; }
-        catch(pe){ lastErr=GEMINI_MODELS[i]+": 応答の形式エラー"; return tryModel(i+1); }
-      });
-    },function(){ lastErr=GEMINI_MODELS[i]+": 通信エラー"; return tryModel(i+1); });
-  }
-  return Promise.resolve().then(function(){ return tryModel(0); });
+      );
+    }
+    return tryModel(0);
+  });
 }
+
+var GEMINI_TRANSLATION_SCHEMA={
+  type:"array",
+  minItems:2,
+  maxItems:2,
+  items:{
+    type:"object",
+    properties:{
+      label:{type:"string",enum:["カジュアル","標準"]},
+      en:{type:"string"}
+    },
+    required:["label","en"],
+    additionalProperties:false
+  }
+};
+
+function translateGemini(ja){
+  return runGemini(LLM_PROMPT+ja,parseVariants,1024,GEMINI_TRANSLATION_SCHEMA);
+}
+
+var CLAUDE_MODEL="claude-haiku-4-5-20251001";
 function translateClaude(ja){
   return fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
@@ -382,7 +570,7 @@ function translateClaude(ja){
       "anthropic-dangerous-direct-browser-access":"true"
     },
     body:JSON.stringify({
-      model:"claude-haiku-4-5",
+      model:CLAUDE_MODEL,
       max_tokens:400,
       messages:[{role:"user",content:LLM_PROMPT+ja}]
     })
@@ -617,7 +805,7 @@ function handleJa(text){
     if(err && err.message==="key"){
       showErr("APIキーが正しくないようです。設定画面でキーを確認してください。"+(err.detail?("【詳細】"+err.detail):""));
     }else if(err && err.detail){
-      showErr("GeminiモデルまたはAPIの設定でエラーが発生しました。利用可能モデルへ自動切替を試しました。\n【詳細】"+err.detail);
+      showErr("Geminiで変換できませんでした。利用可能モデルを自動確認して順番に接続しました。\n【詳細】"+err.detail);
     }else{
       showErr("変換に失敗しました。電波状況とエンジン設定を確認してください。");
     }
@@ -730,18 +918,13 @@ function setGloss(n, ja){
   if(s) s.textContent=ja;
 }
 function llmRawGemini(prompt){
-  var gm = (geminiWorking && GEMINI_MODELS.indexOf(geminiWorking)>=0) ? geminiWorking : GEMINI_MODELS[0];
-  var url="https://generativelanguage.googleapis.com/v1beta/models/"+gm+":generateContent?key="+encodeURIComponent(settings.geminiKey);
-  return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
-  }).then(function(r){ if(!r.ok) throw 0; return r.json(); })
-    .then(function(d){ return d.candidates[0].content.parts.map(function(p){return p.text||"";}).join(""); });
+  return runGemini(prompt,null,512,null);
 }
 function llmRawClaude(prompt){
   return fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":settings.claudeKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model:"claude-haiku-4-5",max_tokens:300,messages:[{role:"user",content:prompt}]})
+    body:JSON.stringify({model:CLAUDE_MODEL,max_tokens:300,messages:[{role:"user",content:prompt}]})
   }).then(function(r){ if(!r.ok) throw 0; return r.json(); })
     .then(function(d){ return (d.content||[]).map(function(b){return b.type==="text"?b.text:"";}).join(""); });
 }
