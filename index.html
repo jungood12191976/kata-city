@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101014">
+<title>KATA CITY — 言いたいこと英語化</title>
+<style>
+  :root{
+    --ink:#101014; --paper:#fff; --blue:#2233DD; --red:#E8442E;
+    --gray:#8A8A93; --faint:#F2F2F4; --line:#E4E4E8;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'Helvetica Neue','Hiragino Kaku Gothic ProN','Noto Sans JP',system-ui,sans-serif;
+    min-height:100vh; font-size:17px;
+  }
+  .screen{display:none; flex-direction:column; min-height:100vh; padding-bottom:calc(90px + env(safe-area-inset-bottom));}
+  .screen.on{display:flex;}
+  .label{font-size:13px; letter-spacing:.16em; font-weight:800; color:var(--gray); text-transform:uppercase;}
+  button{font-family:inherit; cursor:pointer;}
+  .pulse{animation:pulse 1.1s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+
+  #home{padding:28px 22px 40px;}
+  .brand{font-size:17px; font-weight:900; letter-spacing:.22em;}
+  .brand span{color:var(--red);}
+  .hero{margin-top:44px; font-size:42px; line-height:1.15; font-weight:900;}
+  .hero b{color:var(--blue); font-weight:900;}
+  .sub{margin-top:16px; font-size:16px; color:var(--gray); line-height:1.8;}
+  .card{border-radius:18px; padding:22px 20px; text-align:left; border:none; width:100%;}
+  .card.dark{background:var(--ink); color:var(--paper);}
+  .card.ghost{background:none; border:1.5px solid var(--line); opacity:.75;}
+  .card.flat{background:var(--faint); display:flex; justify-content:space-between; align-items:center; padding:18px 20px;}
+  .card h2{font-size:25px; font-weight:900; margin:8px 0 0;}
+  .card p{font-size:15px; margin:6px 0 0; line-height:1.7;}
+  .cta{display:inline-block; background:var(--red); color:var(--paper); font-size:15px; font-weight:800; padding:9px 18px; border-radius:999px; margin-top:14px;}
+  .stack{margin-top:34px; display:flex; flex-direction:column; gap:14px;}
+
+  .topbar{padding:16px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid var(--line);}
+  .back{background:none; border:none; font-size:16px; font-weight:800; color:var(--ink); padding:0;}
+  .count{font-size:14px; font-weight:800; color:var(--gray);}
+  .count b{color:var(--blue); font-size:19px;}
+  .statusrow{padding:16px 22px 0; display:flex; align-items:center; gap:10px;}
+  .dot{width:11px; height:11px; border-radius:999px; background:var(--gray);}
+  .statusjp{font-size:15px; color:var(--gray); margin:6px 22px 0;}
+  .main{flex:1; padding:16px 22px 8px; display:flex; flex-direction:column; gap:14px;}
+
+  .manualrow{display:flex; gap:8px; align-items:stretch;}
+  .micbtn{
+    width:58px; border:none; border-radius:14px; background:var(--blue); color:#fff;
+    font-size:24px; flex-shrink:0;
+  }
+  .micbtn.listening{background:var(--red); animation:pulse 1.1s ease-in-out infinite;}
+  .manualrow input{flex:1; border:1.5px solid var(--line); border-radius:14px; padding:14px; font-size:17px; outline:none; min-width:0;}
+  .manualrow .go{background:var(--ink); color:#fff; border:none; border-radius:14px; padding:0 18px; font-size:16px; font-weight:800; flex-shrink:0;}
+
+  .jabox{background:var(--faint); border-radius:16px; padding:15px 18px;}
+  .jatext{font-size:21px; font-weight:700; margin-top:6px; line-height:1.6; min-height:1.6em;}
+  .enbox{border:2px solid var(--line); border-radius:16px; padding:16px 18px 18px; position:relative;}
+  .enbox.filled{border-color:var(--ink);}
+  .entext{margin-top:10px; font-size:31px; font-weight:900; line-height:1.35;}
+  .entext .ph{color:#D8D8DE; font-size:22px;}
+  .entext .ng{color:var(--red);}
+  .ipa{margin-top:12px; font-size:21px; color:var(--blue); font-family:'Charis SIL','Gentium','Segoe UI',serif; line-height:1.7; min-height:1.2em; font-weight:600;}
+  .meaning{margin-top:10px; font-size:16px; color:var(--gray); line-height:1.6;}
+  .interim-en{margin-top:8px; font-size:16px; color:var(--red); font-style:italic; min-height:1.2em;}
+  .passmark{position:absolute; top:8px; right:12px; font-size:36px; font-weight:900; color:var(--blue); display:none;}
+
+  .checkbtn{
+    width:100%; border:none; border-radius:999px; padding:18px 0;
+    background:var(--red); color:#fff; font-size:19px; font-weight:900; letter-spacing:.04em;
+    display:none;
+  }
+  .checkbtn.listening{animation:pulse 1.1s ease-in-out infinite;}
+  .checkbtn:disabled{opacity:.5;}
+
+  .checkbox-panel{border:2px solid var(--red); background:#FFF7F6; border-radius:16px; padding:15px 18px; display:none;}
+  .wrongword{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-bottom:1px dashed #F3C8C0;}
+  .wrongword:last-child{border-bottom:none;}
+  .wrongword .w{font-size:23px; font-weight:900; color:var(--red);}
+  .wrongword .wi{font-size:20px; color:var(--ink); font-family:'Charis SIL','Gentium','Segoe UI',serif; flex:1; text-align:right;}
+  .wrongword .wp{background:var(--red); color:#fff; border:none; border-radius:999px; width:40px; height:40px; font-size:14px; flex-shrink:0;}
+  .okline{font-size:17px; font-weight:800; color:var(--blue); padding:4px 0;}
+
+  .errbox{font-size:15px; color:var(--red); background:#FDECEA; border-radius:12px; padding:13px 15px; line-height:1.7; display:none;}
+
+  .fab{
+    position:fixed; right:16px; bottom:calc(95px + env(safe-area-inset-bottom)); z-index:20;
+    width:84px; height:84px; border-radius:999px; border:none;
+    background:var(--ink); color:var(--paper);
+    font-size:30px; font-weight:900;
+    box-shadow:0 8px 24px rgba(16,16,20,.35);
+    display:none; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  }
+  .fab small{font-size:11px; font-weight:800; letter-spacing:.06em;}
+  .fab:active{transform:scale(.94);}
+  .fab.playing{background:var(--red);}
+
+  .pagewrap{padding:18px 22px 40px;}
+  .h1{font-size:32px; font-weight:900; margin-top:26px;}
+  .phrase{border:1.5px solid var(--line); border-radius:16px; padding:15px 16px; margin-top:12px;}
+  .phrase .ja{font-size:14px; color:var(--gray);}
+  .phrase .en{font-size:19px; font-weight:800; margin-top:6px; display:flex; justify-content:space-between; align-items:center; gap:10px;}
+  .minibtn{background:var(--faint); border:none; border-radius:999px; width:40px; height:40px; font-size:14px; flex-shrink:0;}
+  .empty{border:1.5px dashed var(--line); border-radius:16px; padding:28px 20px; text-align:center; color:var(--gray); font-size:16px; line-height:1.8; margin-top:20px;}
+  .linkbtn{background:none; border:none; font-size:14px; color:var(--gray);}
+</style>
+</head>
+<body>
+
+<!-- HOME -->
+<div id="home" class="screen on">
+  <div style="display:flex; justify-content:space-between; align-items:baseline;">
+    <div class="brand">KATA<span>CITY</span></div>
+    <div class="label">FREE MODE</div>
+  </div>
+  <div class="hero">言いたいことを、<br>英語の<b>型</b>にする。</div>
+  <div class="sub">自分の言葉から始める英会話トレーニング。<br>話す → 変換 → 聞く → 発音チェック。</div>
+  <div class="stack">
+    <button class="card dark" onclick="go('course')">
+      <div class="label" style="color:var(--red)">COURSE 01</div>
+      <h2>言いたいこと英語化</h2>
+      <p style="color:#B9B9C2">日本語で話す→英語に変換→くり返し聞く→発音チェック。発音記号と意味つき。</p>
+      <span class="cta">はじめる →</span>
+    </button>
+    <div class="card ghost">
+      <div class="label">COURSE 02 — COMING SOON</div>
+      <h2>KATA CITY ドラマ</h2>
+      <p style="color:var(--gray)">連続ドラマの登場人物として会話に参加する没入型コース。準備中。</p>
+    </div>
+    <button class="card flat" onclick="go('phrases')">
+      <div>
+        <div style="font-size:18px; font-weight:900;">マイフレーズ帳</div>
+        <div style="font-size:14px; color:var(--gray); margin-top:3px;">練習した「自分の言葉」が自動で貯まる</div>
+      </div>
+      <div id="phraseCount" style="font-size:27px; font-weight:900; color:var(--blue)">0</div>
+    </button>
+  </div>
+</div>
+
+<!-- COURSE -->
+<div id="course" class="screen">
+  <div class="topbar">
+    <button class="back" onclick="stopAll(); go('home')">← KATA CITY</button>
+    <div class="count">今日 <b id="todayCount">0</b> 本</div>
+  </div>
+  <div class="statusrow">
+    <div class="dot" id="dot"></div>
+    <div class="label" id="statusLabel" style="color:var(--gray)">READY</div>
+  </div>
+  <div class="statusjp" id="statusJp">左下の🎙で日本語を話すか、文字で入力してください</div>
+
+  <div class="main">
+    <div class="manualrow">
+      <button class="micbtn" id="micJaBtn" onclick="tapMicJa()">🎙</button>
+      <input type="text" id="manualJa" placeholder="言いたいことを日本語で" enterkeyhint="go">
+      <button class="go" onclick="submitManual()">変換</button>
+    </div>
+
+    <div class="jabox">
+      <div class="label">あなたの言いたいこと</div>
+      <div class="jatext" id="jaText"><span style="color:#C4C4CC">…</span></div>
+    </div>
+
+    <div class="enbox" id="enBox">
+      <div class="label" style="color:var(--ink)">ENGLISH KATA</div>
+      <div class="entext" id="enText"><span class="ph">ここに英語が表示されます</span></div>
+      <div class="ipa" id="ipaLine"></div>
+      <div class="meaning" id="meaningLine"></div>
+      <div class="interim-en" id="interimEn"></div>
+      <div class="passmark" id="passMark">✓</div>
+    </div>
+
+    <button class="checkbtn" id="checkBtn" onclick="tapCheck()">🎤 私の発音をチェック</button>
+
+    <div class="checkbox-panel" id="checkPanel">
+      <div class="label" style="color:var(--red)">発音チェック結果</div>
+      <div id="wrongList" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="errbox" id="errBox"></div>
+  </div>
+
+  <button class="fab" id="fab" onclick="replayEn()">
+    <span>▶</span><small>くり返し</small>
+  </button>
+</div>
+
+<!-- PHRASES -->
+<div id="phrases" class="screen">
+  <div class="pagewrap">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <button class="back" onclick="go('home')">← KATA CITY</button>
+      <button class="linkbtn" onclick="clearPhrases()">全削除</button>
+    </div>
+    <div class="h1">マイフレーズ帳</div>
+    <div class="sub" style="margin-top:6px;">あなたが実際に言いたかった言葉だけが並ぶ、世界に一冊の教科書。</div>
+    <div id="phraseList"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+var rec=null, enTarget="", jaCurrent="", todayCount=0, micMode="";
+
+function $(id){ return document.getElementById(id); }
+
+var store = {
+  get:function(k,d){ try{ var v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+  set:function(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+};
+var phrases = store.get("kata:phrases",[]);
+var ipaCache = store.get("kata:ipa",{});
+
+function go(name){
+  var s=document.querySelectorAll(".screen");
+  for(var i=0;i<s.length;i++) s[i].classList.remove("on");
+  $(name).classList.add("on");
+  if(name==="home") renderHome();
+  if(name==="phrases") renderPhrases();
+  $("fab").style.display = (name==="course" && enTarget) ? "flex" : "none";
+}
+function renderHome(){ $("phraseCount").textContent = phrases.length; }
+
+// ---------- translation (free: MyMemory) ----------
+function translate(ja){
+  var url = "https://api.mymemory.translated.net/get?q="+encodeURIComponent(ja)+"&langpair=ja|en";
+  return fetch(url).then(function(res){
+    if(!res.ok) throw new Error("net");
+    return res.json();
+  }).then(function(data){
+    var t = data && data.responseData && data.responseData.translatedText;
+    if(!t) throw new Error("empty");
+    return t.replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&amp;/g,"&").trim();
+  });
+}
+
+// ---------- IPA ----------
+function normWord(w){ return w.toLowerCase().replace(/[^a-z']/g,""); }
+function fetchIPA(word){
+  var n = normWord(word);
+  if(!n) return Promise.resolve("");
+  if(ipaCache[n] !== undefined) return Promise.resolve(ipaCache[n]);
+  return fetch("https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(n))
+    .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(d){
+      var ipa="";
+      if(d && d[0]){
+        if(d[0].phonetic) ipa=d[0].phonetic;
+        else if(d[0].phonetics){
+          for(var i=0;i<d[0].phonetics.length;i++){
+            if(d[0].phonetics[i].text){ ipa=d[0].phonetics[i].text; break; }
+          }
+        }
+      }
+      ipaCache[n]=ipa||"";
+      store.set("kata:ipa",ipaCache);
+      return ipa||"";
+    })
+    .catch(function(){ ipaCache[n]=""; store.set("kata:ipa",ipaCache); return ""; });
+}
+function buildSentenceIPA(sentence){
+  var words = sentence.split(/\s+/).filter(function(w){return normWord(w);});
+  $("ipaLine").textContent = "発音記号を取得中…";
+  Promise.all(words.map(function(w){ return fetchIPA(w); })).then(function(list){
+    var parts=[];
+    for(var i=0;i<words.length;i++){
+      parts.push(list[i] ? list[i].replace(/^\/|\/$/g,"") : normWord(words[i]));
+    }
+    $("ipaLine").textContent = "/ " + parts.join(" · ") + " /";
+  });
+}
+
+// ---------- TTS ----------
+function speak(text, opts){
+  opts=opts||{};
+  try{
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(text);
+    u.lang="en-US"; u.rate=opts.rate||0.9;
+    var vs = speechSynthesis.getVoices();
+    var v=null;
+    for(var i=0;i<vs.length;i++){ if(vs[i].lang==="en-US" && /Google/.test(vs[i].name)){ v=vs[i]; break; } }
+    if(!v){ for(var j=0;j<vs.length;j++){ if(vs[j].lang && vs[j].lang.indexOf("en")===0){ v=vs[j]; break; } } }
+    if(v) u.voice=v;
+    $("fab").classList.add("playing");
+    u.onend=function(){ $("fab").classList.remove("playing"); if(opts.onend) opts.onend(); };
+    u.onerror=function(){ $("fab").classList.remove("playing"); if(opts.onend) opts.onend(); };
+    speechSynthesis.speak(u);
+  }catch(e){ if(opts.onend) opts.onend(); }
+}
+function replayEn(){ if(enTarget) speak(enTarget,{rate:0.85}); }
+function speakWord(w){ speak(w,{rate:0.7}); }
+
+// ---------- pronunciation compare ----------
+function checkPron(target, spoken){
+  var tw = target.split(/\s+/).filter(Boolean);
+  var sw = spoken.split(/\s+/).map(normWord).filter(Boolean);
+  var used = new Array(sw.length); for(var x=0;x<used.length;x++) used[x]=false;
+  var cursor=0;
+  return tw.map(function(w){
+    var n=normWord(w);
+    if(!n) return {word:w, ok:true};
+    for(var i=cursor;i<sw.length;i++){ if(!used[i]&&sw[i]===n){used[i]=true;cursor=i+1;return{word:w,ok:true};} }
+    for(var k=0;k<sw.length;k++){ if(!used[k]&&sw[k]===n){used[k]=true;return{word:w,ok:true};} }
+    return {word:w, ok:false};
+  });
+}
+function matchRate(marks){
+  var s = marks.filter(function(m){return normWord(m.word);});
+  if(!s.length) return 1;
+  return s.filter(function(m){return m.ok;}).length/s.length;
+}
+
+// ---------- status ----------
+var STATUS = {
+  idle:        {label:"READY",         jp:"左下の🎙で日本語を話すか、文字で入力してください", color:"var(--gray)", pulse:false},
+  listening_ja:{label:"SPEAK 日本語",  jp:"言いたいことを日本語で話してください",             color:"var(--blue)", pulse:true},
+  translating: {label:"CONVERTING",    jp:"英語に変換中…",                                   color:"var(--gray)", pulse:false},
+  ready_en:    {label:"LISTEN & TRY",  jp:"右下▶でくり返し聞く→赤いボタンで発音チェック",     color:"var(--ink)",  pulse:false},
+  listening_en:{label:"REPEAT 英語",   jp:"いま聞いています。英語で発音してください！",       color:"var(--red)",  pulse:true},
+  pass:        {label:"PASS ✓",       jp:"OK！次の言いたいことをどうぞ",                     color:"var(--blue)", pulse:false},
+  retry:       {label:"RETRY",         jp:"下の赤い単語を練習して、もう一度チェック",         color:"var(--red)",  pulse:false}
+};
+function setStatus(s){
+  var i=STATUS[s];
+  $("dot").style.background=i.color;
+  $("dot").className="dot"+(i.pulse?" pulse":"");
+  $("statusLabel").textContent=i.label;
+  $("statusLabel").style.color=i.color;
+  $("statusJp").textContent=i.jp;
+}
+function showErr(msg){ var e=$("errBox"); e.textContent=msg||""; e.style.display=msg?"block":"none"; }
+
+// ---------- one-shot recognition ----------
+function stopAll(){
+  if(rec){ try{ rec.onend=null; rec.onresult=null; rec.onerror=null; rec.stop(); }catch(e){} rec=null; }
+  try{ speechSynthesis.cancel(); }catch(e){}
+  micMode="";
+  $("micJaBtn").classList.remove("listening");
+  $("checkBtn").classList.remove("listening");
+  $("checkBtn").textContent="🎤 私の発音をチェック";
+}
+function listenOnce(lang, onText){
+  if(!SR){
+    showErr("このブラウザは音声認識に対応していません。Android版Chromeで開いてください。文字入力は使えます。");
+    return;
+  }
+  stopAll();
+  rec = new SR();
+  rec.lang=lang; rec.continuous=false; rec.interimResults=true; rec.maxAlternatives=1;
+  var finalText="";
+  rec.onresult=function(e){
+    var interim="";
+    for(var i=e.resultIndex;i<e.results.length;i++){
+      var t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) finalText+=t; else interim+=t;
+    }
+    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=interim||finalText||"…"; }
+    else{ $("interimEn").textContent=(interim||finalText)?("🎙 "+(interim||finalText)):""; }
+  };
+  rec.onerror=function(e){
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"){
+      showErr("マイクが使えません。Chromeのアドレスバー左の鍵マーク→権限→マイクを「許可」にしてください。");
+    }
+    cleanupMicUI();
+  };
+  rec.onend=function(){
+    cleanupMicUI();
+    var text=finalText.trim();
+    if(text) onText(text);
+    else if(lang==="ja-JP"){ setStatus(enTarget?"ready_en":"idle"); }
+    else { setStatus("ready_en"); $("interimEn").textContent=""; }
+  };
+  try{ rec.start(); }catch(e){ cleanupMicUI(); }
+}
+function cleanupMicUI(){
+  micMode="";
+  $("micJaBtn").classList.remove("listening");
+  $("checkBtn").classList.remove("listening");
+  $("checkBtn").textContent="🎤 私の発音をチェック";
+  rec=null;
+}
+
+// ---------- ja input (mic) ----------
+function tapMicJa(){
+  if(micMode==="ja"){ stopAll(); setStatus("idle"); return; }
+  showErr("");
+  micMode="ja";
+  $("micJaBtn").classList.add("listening");
+  setStatus("listening_ja");
+  listenOnce("ja-JP", function(text){ handleJa(text); });
+}
+
+// ---------- check button ----------
+function tapCheck(){
+  if(!enTarget) return;
+  if(micMode==="en"){ stopAll(); setStatus("ready_en"); return; }
+  showErr("");
+  micMode="en";
+  $("checkBtn").classList.add("listening");
+  $("checkBtn").textContent="🎙 聞いています…話してください（タップで中止）";
+  setStatus("listening_en");
+  listenOnce("en-US", function(text){ handleEnRepeat(text); });
+}
+
+// ---------- flow ----------
+function handleJa(text){
+  jaCurrent=text;
+  $("jaText").style.color="var(--ink)";
+  $("jaText").textContent=text;
+  resetEnPanel();
+  setStatus("translating");
+  translate(text).then(function(en){
+    enTarget=en;
+    $("enBox").classList.add("filled");
+    $("enText").textContent=en;
+    $("meaningLine").textContent="意味: "+jaCurrent;
+    $("fab").style.display="flex";
+    $("checkBtn").style.display="block";
+    buildSentenceIPA(en);
+    setStatus("ready_en");
+    todayCount++; $("todayCount").textContent=todayCount;
+    phrases.push({ja:jaCurrent,en:enTarget,ts:Date.now()});
+    if(phrases.length>300) phrases=phrases.slice(-300);
+    store.set("kata:phrases",phrases);
+    speak(en,{rate:0.9});
+  }).catch(function(){
+    showErr("翻訳に失敗しました。電波状況を確認してください。(無料翻訳は1日の上限あり。上限到達時は翌日回復します)");
+    setStatus("idle");
+  });
+}
+
+function handleEnRepeat(spoken){
+  showErr("");
+  var marks = checkPron(enTarget, spoken);
+  var rate = matchRate(marks);
+  var html="";
+  for(var i=0;i<marks.length;i++){
+    html += '<span class="'+(marks[i].ok?"":"ng")+'">'+escapeHtml(marks[i].word)+'</span> ';
+  }
+  $("enText").innerHTML=html;
+  $("interimEn").textContent="";
+  $("checkPanel").style.display="block";
+  if(rate>=0.8){
+    $("wrongList").innerHTML='<div class="okline">✓ 合格！ '+Math.round(rate*100)+'%一致。よく言えています。</div>';
+    setStatus("pass");
+    $("passMark").style.display="block";
+  }else{
+    var wrong = marks.filter(function(m){return !m.ok&&normWord(m.word);});
+    renderWrongList(wrong, Math.round(rate*100));
+    setStatus("retry");
+  }
+}
+
+function renderWrongList(wrong, pct){
+  var el=$("wrongList");
+  el.innerHTML='<div style="font-size:15px;color:var(--gray);padding:2px 0 6px;">'+pct+'%一致。下の単語が聞き取れませんでした。▶で聞いて、もう一度チェック。</div>';
+  wrong.forEach(function(m){
+    var row=document.createElement("div");
+    row.className="wrongword";
+    row.innerHTML='<span class="w">'+escapeHtml(m.word)+'</span>'+
+      '<span class="wi" id="wi-'+normWord(m.word)+'">…</span>'+
+      '<button class="wp" onclick="speakWord(\''+escapeHtml(m.word).replace(/'/g,"\\'")+'\')">▶</button>';
+    el.appendChild(row);
+    fetchIPA(m.word).then(function(ipa){
+      var s=document.getElementById("wi-"+normWord(m.word));
+      if(s) s.textContent = ipa || "—";
+    });
+  });
+}
+
+function resetEnPanel(){
+  enTarget="";
+  $("enText").innerHTML='<span class="ph">ここに英語が表示されます</span>';
+  $("enBox").classList.remove("filled");
+  $("ipaLine").textContent=""; $("meaningLine").textContent="";
+  $("interimEn").textContent="";
+  $("passMark").style.display="none";
+  $("checkPanel").style.display="none";
+  $("wrongList").innerHTML="";
+  $("checkBtn").style.display="none";
+  $("fab").style.display="none";
+}
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// ---------- manual text ----------
+function submitManual(){
+  var t=$("manualJa").value.trim();
+  if(!t) return;
+  $("manualJa").value="";
+  $("manualJa").blur();
+  handleJa(t);
+}
+$("manualJa").addEventListener("keydown",function(e){ if(e.key==="Enter") submitManual(); });
+
+// ---------- phrases ----------
+function renderPhrases(){
+  var list=phrases.slice().reverse();
+  var el=$("phraseList");
+  if(!list.length){
+    el.innerHTML='<div class="empty">まだフレーズがありません。<br>コース01で練習すると、フレーズが自動で貯まります。</div>';
+    return;
+  }
+  var html="";
+  for(var i=0;i<list.length;i++){
+    var idx=phrases.length-1-i;
+    html+='<div class="phrase"><div class="ja">'+escapeHtml(list[i].ja)+'</div>'+
+      '<div class="en"><span>'+escapeHtml(list[i].en)+'</span>'+
+      '<button class="minibtn" onclick="speakPhrase('+idx+')">▶</button></div></div>';
+  }
+  el.innerHTML=html;
+}
+function speakPhrase(idx){ var p=phrases[idx]; if(p) speak(p.en,{rate:0.9}); }
+function clearPhrases(){
+  if(!confirm("フレーズ帳を全削除しますか？")) return;
+  phrases=[]; store.set("kata:phrases",[]); renderPhrases(); renderHome();
+}
+
+renderHome();
+if("speechSynthesis" in window){ speechSynthesis.onvoiceschanged=function(){}; }
+</script>
+</body>
+</html>
