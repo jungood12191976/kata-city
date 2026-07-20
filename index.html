@@ -538,15 +538,17 @@ function listenOnce(lang, onText, maxMs){
     silenceTimer=setTimeout(function(){ if(gotSpeech) finish(false); else armSilence(); }, SILENCE_MS);
   }
   rec.onresult=function(e){
-    var interim="";
-    for(var i=e.resultIndex;i<e.results.length;i++){
+    var fin="", interim="";
+    for(var i=0;i<e.results.length;i++){
       var t=e.results[i][0].transcript;
-      if(e.results[i].isFinal) finalText+=t+" "; else interim+=t;
+      if(e.results[i].isFinal) fin+=t+" "; else interim+=t;
     }
-    if(interim||finalText) gotSpeech=true;
+    finalText=fin;
+    if(interim||fin) gotSpeech=true;
     armSilence();
-    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=(interim||finalText)||"…"; }
-    else{ $("interimEn").textContent=(interim||finalText)?("🎙 "+(interim||finalText)):""; }
+    var shown=(fin+" "+interim).trim();
+    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=shown||"…"; }
+    else{ $("interimEn").textContent=shown?("🎙 "+shown):""; }
   };
   rec.onerror=function(e){
     if(e.error==="not-allowed"||e.error==="service-not-allowed"){
