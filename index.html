@@ -87,14 +87,15 @@
   .wrongword{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-bottom:1px dashed #F3C8C0;}
   .wrongword:last-child{border-bottom:none;}
   .wrongword .w{font-size:23px; font-weight:900; color:var(--red);}
-  .wrongword .wi{font-size:20px; color:var(--ink); font-family:'Charis SIL','Gentium','Segoe UI',serif; flex:1; text-align:right;}
+  .wrongword .wg{font-size:16px; color:var(--ink); flex:1; text-align:center; font-weight:700;}
+  .wrongword .wi{font-size:19px; color:var(--gray); font-family:'Charis SIL','Gentium','Segoe UI',serif; text-align:right;}
   .wrongword .wp{background:var(--red); color:#fff; border:none; border-radius:999px; width:40px; height:40px; font-size:14px; flex-shrink:0;}
   .okline{font-size:17px; font-weight:800; color:var(--blue); padding:4px 0;}
 
   .errbox{font-size:15px; color:var(--red); background:#FDECEA; border-radius:12px; padding:13px 15px; line-height:1.7; display:none;}
 
   .fab{
-    position:fixed; right:16px; bottom:calc(95px + env(safe-area-inset-bottom)); z-index:20;
+    position:fixed; left:16px; bottom:calc(95px + env(safe-area-inset-bottom)); z-index:20;
     width:84px; height:84px; border-radius:999px; border:none;
     background:var(--ink); color:var(--paper);
     font-size:30px; font-weight:900;
@@ -342,6 +343,7 @@ function translateFree(ja){
       return [{label:"無料翻訳", en:t}];
     });
 }
+var geminiWorking=null;
 var GEMINI_MODELS=["gemini-flash-latest","gemini-2.5-flash","gemini-3-flash","gemini-2.0-flash","gemini-2.5-flash-lite"];
 function translateGemini(ja){
   var lastErr="";
@@ -363,7 +365,7 @@ function translateGemini(ja){
         }
         var t="";
         try{ t=d.candidates[0].content.parts.map(function(p){return p.text||"";}).join(""); }catch(e){}
-        try{ return parseVariants(t); }
+        try{ var pv=parseVariants(t); geminiWorking=GEMINI_MODELS[i]; return pv; }
         catch(pe){ lastErr=GEMINI_MODELS[i]+": 応答の形式エラー"; return tryModel(i+1); }
       });
     },function(){ lastErr=GEMINI_MODELS[i]+": 通信エラー"; return tryModel(i+1); });
@@ -495,35 +497,67 @@ function stopAll(){
   try{ speechSynthesis.cancel(); }catch(e){}
   cleanupMicUI();
 }
-function listenOnce(lang, onText){
+function buzzer(){
+  try{
+    var ctx=new (window.AudioContext||window.webkitAudioContext)();
+    var o=ctx.createOscillator(), g=ctx.createGain();
+    o.type="square"; o.frequency.value=180;
+    g.gain.value=0.15;
+    o.connect(g); g.connect(ctx.destination);
+    o.start();
+    setTimeout(function(){ o.stop(); ctx.close(); },450);
+  }catch(e){}
+}
+function listenOnce(lang, onText, maxMs){
   if(!SR){ showErr("このブラウザは音声認識に対応していません。Android版Chromeで開いてください。文字入力は使えます。"); return; }
   stopAll();
   rec=new SR();
-  rec.lang=lang; rec.continuous=false; rec.interimResults=true; rec.maxAlternatives=1;
-  var finalText="";
+  rec.lang=lang; rec.continuous=true; rec.interimResults=true; rec.maxAlternatives=1;
+  var finalText="", done=false, silenceTimer=null, hardTimer=null, gotSpeech=false;
+  var SILENCE_MS=2000;
+  function clearTimers(){ if(silenceTimer)clearTimeout(silenceTimer); if(hardTimer)clearTimeout(hardTimer); }
+  function finish(timedOut){
+    if(done) return; done=true;
+    clearTimers();
+    if(rec){ try{ rec.onend=null; rec.onresult=null; rec.onerror=null; rec.stop(); }catch(e){} rec=null; }
+    cleanupMicUI();
+    var text=finalText.trim();
+    if(timedOut){
+      buzzer();
+      $("interimEn").textContent="";
+      showErr("⏱ 時間切れです！ここまでに言い終える練習をしましょう。もう一度「発音チェック」を押せばやり直せます。");
+      setStatus(enTarget?"ready_en":"idle");
+      return;
+    }
+    if(text){ onText(text); }
+    else if(lang==="ja-JP"){ setStatus(enTarget?"ready_en":"idle"); }
+    else{ setStatus("ready_en"); $("interimEn").textContent=""; }
+  }
+  function armSilence(){
+    if(silenceTimer) clearTimeout(silenceTimer);
+    silenceTimer=setTimeout(function(){ if(gotSpeech) finish(false); else armSilence(); }, SILENCE_MS);
+  }
   rec.onresult=function(e){
     var interim="";
     for(var i=e.resultIndex;i<e.results.length;i++){
       var t=e.results[i][0].transcript;
-      if(e.results[i].isFinal) finalText+=t; else interim+=t;
+      if(e.results[i].isFinal) finalText+=t+" "; else interim+=t;
     }
-    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=interim||finalText||"…"; }
+    if(interim||finalText) gotSpeech=true;
+    armSilence();
+    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=(interim||finalText)||"…"; }
     else{ $("interimEn").textContent=(interim||finalText)?("🎙 "+(interim||finalText)):""; }
   };
   rec.onerror=function(e){
     if(e.error==="not-allowed"||e.error==="service-not-allowed"){
       showErr("マイクが使えません。Chromeのアドレスバー左の鍵マーク→権限→マイクを「許可」にしてください。");
+      done=true; clearTimers(); cleanupMicUI();
     }
-    cleanupMicUI();
   };
-  rec.onend=function(){
-    cleanupMicUI();
-    var text=finalText.trim();
-    if(text) onText(text);
-    else if(lang==="ja-JP"){ setStatus(enTarget?"ready_en":"idle"); }
-    else{ setStatus("ready_en"); $("interimEn").textContent=""; }
-  };
-  try{ rec.start(); }catch(e){ cleanupMicUI(); }
+  rec.onend=function(){ finish(false); };
+  armSilence();
+  hardTimer=setTimeout(function(){ finish(true); }, maxMs||15000);
+  try{ rec.start(); }catch(e){ clearTimers(); cleanupMicUI(); }
 }
 function cleanupMicUI(){
   micMode="";
@@ -538,7 +572,7 @@ function tapMicJa(){
   micMode="ja";
   $("micJaBtn").classList.add("listening");
   setStatus("listening_ja");
-  listenOnce("ja-JP",function(text){ handleJa(text); });
+  listenOnce("ja-JP",function(text){ handleJa(text); },15000);
 }
 function tapCheck(){
   if(!enTarget) return;
@@ -548,7 +582,9 @@ function tapCheck(){
   $("checkBtn").classList.add("listening");
   $("checkBtn").textContent="🎙 聞いています…話してください（タップで中止）";
   setStatus("listening_en");
-  listenOnce("en-US",function(text){ handleEnRepeat(text); });
+  var wc=enTarget.split(/\s+/).filter(Boolean).length;
+  var maxMs=Math.min(3000+wc*1100, 25000);
+  listenOnce("en-US",function(text){ handleEnRepeat(text); },maxMs);
 }
 
 // ---------- flow ----------
@@ -638,6 +674,7 @@ function renderWrongList(wrong, pct){
     var row=document.createElement("div");
     row.className="wrongword";
     row.innerHTML='<span class="w">'+escapeHtml(m.word)+'</span>'+
+      '<span class="wg" id="wg-'+normWord(m.word)+'"></span>'+
       '<span class="wi" id="wi-'+normWord(m.word)+'">…</span>'+
       '<button class="wp" onclick="speakWord(\''+escapeHtml(m.word).replace(/'/g,"\\'")+'\')">▶</button>';
     el.appendChild(row);
@@ -646,6 +683,53 @@ function renderWrongList(wrong, pct){
       if(s) s.textContent=ipa||"—";
     });
   });
+  glossWords(wrong.map(function(m){return m.word;}));
+}
+var glossCache = store.get("kata:gloss",{});
+function glossWords(words){
+  var need=[];
+  words.forEach(function(w){
+    var n=normWord(w);
+    if(!n) return;
+    if(glossCache[n]){ setGloss(n,glossCache[n]); }
+    else need.push(n);
+  });
+  if(!need.length) return;
+  var hasLLM=(settings.engine==="gemini"&&settings.geminiKey)||(settings.engine==="claude"&&settings.claudeKey);
+  if(!hasLLM) return;
+  var prompt='次の英単語それぞれの日本語の意味を1〜3語で簡潔に。JSONのみで返答（説明・コードブロック記号なし）。例：{"hot":"暑い"}。単語: '+need.join(", ");
+  var call = settings.engine==="claude" ? llmRawClaude(prompt) : llmRawGemini(prompt);
+  call.then(function(text){
+    var t=text.replace(/```json|```/g,"").trim();
+    var s=t.indexOf("{"), e=t.lastIndexOf("}");
+    if(s>=0&&e>s) t=t.substring(s,e+1);
+    var obj=JSON.parse(t);
+    for(var k in obj){
+      var n=normWord(k);
+      if(n){ glossCache[n]=String(obj[k]); setGloss(n,glossCache[n]); }
+    }
+    store.set("kata:gloss",glossCache);
+  }).catch(function(){});
+}
+function setGloss(n, ja){
+  var s=document.getElementById("wg-"+n);
+  if(s) s.textContent=ja;
+}
+function llmRawGemini(prompt){
+  var gm = geminiWorking || GEMINI_MODELS[0];
+  var url="https://generativelanguage.googleapis.com/v1beta/models/"+gm+":generateContent?key="+encodeURIComponent(settings.geminiKey);
+  return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+  }).then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(d){ return d.candidates[0].content.parts.map(function(p){return p.text||"";}).join(""); });
+}
+function llmRawClaude(prompt){
+  return fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":settings.claudeKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:"claude-haiku-4-5",max_tokens:300,messages:[{role:"user",content:prompt}]})
+  }).then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(d){ return (d.content||[]).map(function(b){return b.type==="text"?b.text:"";}).join(""); });
 }
 function resetEnPanel(){
   enTarget=""; curVariants=[];
