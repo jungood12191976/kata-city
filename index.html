@@ -344,11 +344,14 @@ function translateFree(ja){
     });
 }
 var geminiWorking=null;
-var GEMINI_MODELS=["gemini-flash-latest","gemini-2.5-flash","gemini-3-flash","gemini-2.0-flash","gemini-2.5-flash-lite"];
+var GEMINI_MODELS=[
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-preview-05-20"
+];
 function translateGemini(ja){
   var lastErr="";
   function tryModel(i){
-    if(i>=GEMINI_MODELS.length){ var e=new Error("gemini"); e.detail=lastErr; throw e; }
+    if(i>=GEMINI_MODELS.length){ var e=new Error("gemini"); e.detail="利用可能なGeminiモデルで接続できませんでした。 "+lastErr; throw e; }
     var url="https://generativelanguage.googleapis.com/v1beta/models/"+GEMINI_MODELS[i]+":generateContent?key="+encodeURIComponent(settings.geminiKey);
     return fetch(url,{
       method:"POST",
