@@ -511,17 +511,20 @@ function buzzer(){
 function listenOnce(lang, onText, maxMs){
   if(!SR){ showErr("このブラウザは音声認識に対応していません。Android版Chromeで開いてください。文字入力は使えます。"); return; }
   stopAll();
-  rec=new SR();
-  rec.lang=lang; rec.continuous=true; rec.interimResults=true; rec.maxAlternatives=1;
-  var finalText="", done=false, silenceTimer=null, hardTimer=null, gotSpeech=false;
+  var accum="", curFinal="", done=false, silenceTimer=null, hardTimer=null, gotSpeech=false;
   var SILENCE_MS=2000;
   function clearTimers(){ if(silenceTimer)clearTimeout(silenceTimer); if(hardTimer)clearTimeout(hardTimer); }
+  function display(interim){
+    var shown=(accum+curFinal+(interim||"")).replace(/\s+/g," ").trim();
+    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=shown||"…"; }
+    else{ $("interimEn").textContent=shown?("🎙 "+shown):""; }
+  }
   function finish(timedOut){
     if(done) return; done=true;
     clearTimers();
     if(rec){ try{ rec.onend=null; rec.onresult=null; rec.onerror=null; rec.stop(); }catch(e){} rec=null; }
     cleanupMicUI();
-    var text=finalText.trim();
+    var text=(accum+curFinal).replace(/\s+/g," ").trim();
     if(timedOut){
       buzzer();
       $("interimEn").textContent="";
@@ -537,29 +540,38 @@ function listenOnce(lang, onText, maxMs){
     if(silenceTimer) clearTimeout(silenceTimer);
     silenceTimer=setTimeout(function(){ if(gotSpeech) finish(false); else armSilence(); }, SILENCE_MS);
   }
-  rec.onresult=function(e){
-    var fin="", interim="";
-    for(var i=0;i<e.results.length;i++){
-      var t=e.results[i][0].transcript;
-      if(e.results[i].isFinal) fin+=t+" "; else interim+=t;
-    }
-    finalText=fin;
-    if(interim||fin) gotSpeech=true;
-    armSilence();
-    var shown=(fin+" "+interim).trim();
-    if(lang==="ja-JP"){ $("jaText").style.color="var(--blue)"; $("jaText").textContent=shown||"…"; }
-    else{ $("interimEn").textContent=shown?("🎙 "+shown):""; }
-  };
-  rec.onerror=function(e){
-    if(e.error==="not-allowed"||e.error==="service-not-allowed"){
-      showErr("マイクが使えません。Chromeのアドレスバー左の鍵マーク→権限→マイクを「許可」にしてください。");
-      done=true; clearTimers(); cleanupMicUI();
-    }
-  };
-  rec.onend=function(){ finish(false); };
+  function startRec(){
+    if(done) return;
+    rec=new SR();
+    rec.lang=lang; rec.continuous=false; rec.interimResults=true; rec.maxAlternatives=1;
+    curFinal="";
+    rec.onresult=function(e){
+      var fin="", interim="";
+      for(var i=0;i<e.results.length;i++){
+        var t=e.results[i][0].transcript;
+        if(e.results[i].isFinal) fin+=t+" "; else interim+=t;
+      }
+      curFinal=fin;
+      if(fin||interim) gotSpeech=true;
+      armSilence();
+      display(interim);
+    };
+    rec.onerror=function(e){
+      if(e.error==="not-allowed"||e.error==="service-not-allowed"){
+        done=true; clearTimers(); cleanupMicUI();
+        showErr("マイクが使えません。Chromeのアドレスバー左の鍵マーク→権限→マイクを「許可」にしてください。");
+      }
+    };
+    rec.onend=function(){
+      if(done) return;
+      accum+=curFinal; curFinal="";
+      startRec();
+    };
+    try{ rec.start(); }catch(e){}
+  }
   armSilence();
   hardTimer=setTimeout(function(){ finish(true); }, maxMs||15000);
-  try{ rec.start(); }catch(e){ clearTimers(); cleanupMicUI(); }
+  startRec();
 }
 function cleanupMicUI(){
   micMode="";
